@@ -1,0 +1,2 @@
+#!/bin/sh
+docker build --build-arg BW_BRANCH=$BW_BRANCH --build-arg BW_REPOSITORY=$BW_REPOSITORY -t $IMAGE_NAME .
