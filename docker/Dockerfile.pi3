@@ -1,0 +1,55 @@
+FROM balenalib/raspberrypi3-alpine-python:3.7-3.10-build as build-base
+RUN [ "cross-build-start" ]
+RUN install_packages git cmake libusb-dev libpulse musl-dev gcc g++
+RUN [ "cross-build-end" ] 
+
+FROM build-base as rtl_fm
+ARG RTL_SDR_VERSION=0.6.0
+RUN [ "cross-build-start" ]
+RUN git clone --depth 1 --branch ${RTL_SDR_VERSION} https://github.com/osmocom/rtl-sdr.git /opt/rtl_sdr
+WORKDIR /opt/rtl_sdr/build
+RUN cmake .. && make
+RUN [ "cross-build-end" ] 
+
+FROM build-base as multimon
+ARG MULTIMON_VERSION=1.1.8
+RUN [ "cross-build-start" ]
+RUN git clone --depth 1 --branch ${MULTIMON_VERSION} https://github.com/EliasOenal/multimon-ng.git /opt/multimon
+WORKDIR /opt/multimon/build
+RUN cmake .. && make
+RUN [ "cross-build-end" ] 
+
+FROM build-base as boswatch
+ARG BW_REPOSITORY=https://github.com/BOSWatch/BW3-Core.git
+ARG BW_BRANCH=master
+RUN [ "cross-build-start" ]
+RUN git clone --depth 1 --branch ${BW_BRANCH} ${BW_REPOSITORY} /opt/boswatch
+WORKDIR /opt/boswatch
+
+RUN pip install --upgrade pip setuptools && \
+    pip install pipenv && \
+    python3 -m venv /opt/boswatch/.venv
+ENV PATH="/opt/boswatch/.venv/bin:$PATH" VIRTUAL_ENV="/opt/boswatch/.venv"
+RUN pip install -r /opt/boswatch/requirements.txt
+RUN [ "cross-build-end" ]  
+
+
+FROM balenalib/raspberrypi3-alpine-python:3.7-3.10
+LABEL LABEL maintainer="bastian@schroll-software.de"
+RUN [ "cross-build-start" ]
+
+RUN install_packages libusb-dev libpulse pulseaudio pulseaudio-utils
+
+COPY boswatch.pa /etc/pulse/boswatch.pa
+COPY --from=rtl_fm /opt/rtl_sdr/build/src/ /opt/rtl_sdr/
+COPY --from=multimon /opt/multimon/build/multimon-ng /opt/multimon/multimon-ng
+COPY --from=boswatch /opt/boswatch/ /opt/boswatch/
+ENV PATH="/opt/boswatch/.venv/bin:$PATH" VIRTUAL_ENV="/opt/boswatch/.venv"
+
+COPY docker-entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+RUN [ "cross-build-end" ]  
+
+WORKDIR /opt/boswatch
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["/bin/sh"]
